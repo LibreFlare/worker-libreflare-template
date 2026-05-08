@@ -1,4 +1,5 @@
 name: Libreflare initialization
+run-name: Libreflare initialization ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
