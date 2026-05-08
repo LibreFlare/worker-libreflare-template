@@ -47,11 +47,10 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   initialize:
-    name: Open initialization PR
+    name: Prepare initialization branch
     runs-on: ubuntu-latest
     env:
       LIBREFLARE_BASE_BRANCH: "${{ github.ref_name }}"
@@ -69,15 +68,14 @@ jobs:
       LIBREFLARE_LOG_VARY_BY_MONTH: "${{ inputs.log_vary_by_month }}"
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.ref_name }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -85,10 +83,8 @@ jobs:
       - name: Update Libreflare files
         run: node scripts/libreflare-init.mts
 
-      - name: Open Libreflare initialization PR
+      - name: Push Libreflare initialization branch
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -106,28 +102,7 @@ jobs:
           fi
 
           git commit -m "$LIBREFLARE_PULL_REQUEST_TITLE"
-          git fetch origin "$LIBREFLARE_BRANCH_NAME:refs/remotes/origin/$LIBREFLARE_BRANCH_NAME" || true
-          git push --force-with-lease origin "$LIBREFLARE_BRANCH_NAME:$LIBREFLARE_BRANCH_NAME"
-
-          body_file="$(mktemp)"
-          cat > "$body_file" <<EOF
-          Libreflare initialized ${LIBREFLARE_PROJECT_NAME}.
-
-          - Worker: ${LIBREFLARE_WORKER_NAME}
-          - Domain: ${LIBREFLARE_DOMAIN_NAME}
-          - Worker route prefix: ${LIBREFLARE_WORKER_ROUTE_PREFIX}
-          - Rules config: ${LIBREFLARE_RULES_CONFIG_PATH}
-
-          Logging auth headers are not stored in this repository. If the logging API requires static auth headers, configure LOG_API_AUTH_HEADERS_JSON as a Worker secret.
-          EOF
-
-          if existing_pr_url="$(gh pr view "$LIBREFLARE_BRANCH_NAME" --json url --jq .url 2>/dev/null)"; then
-            gh pr edit "$LIBREFLARE_BRANCH_NAME" --title "$LIBREFLARE_PULL_REQUEST_TITLE" --body-file "$body_file"
-            echo "Updated initialization pull request: $existing_pr_url"
-          else
-            gh pr create \
-              --base "$LIBREFLARE_BASE_BRANCH" \
-              --head "$LIBREFLARE_BRANCH_NAME" \
-              --title "$LIBREFLARE_PULL_REQUEST_TITLE" \
-              --body-file "$body_file"
+          if git ls-remote --exit-code --heads origin "$LIBREFLARE_BRANCH_NAME" >/dev/null; then
+            git fetch origin "$LIBREFLARE_BRANCH_NAME:refs/remotes/origin/$LIBREFLARE_BRANCH_NAME"
           fi
+          git push --force-with-lease origin "$LIBREFLARE_BRANCH_NAME:$LIBREFLARE_BRANCH_NAME"

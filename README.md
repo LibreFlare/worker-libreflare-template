@@ -8,7 +8,7 @@ Starter Cloudflare Worker for Libreflare-managed logging projects.
 2. Add the repository to the Libreflare GitHub App installation's selected repositories.
 3. Select the repository in the Libreflare dashboard and configure the initial rewrite.
 4. Libreflare dispatches `.github/workflows/libreflare-init.yml`.
-5. The workflow updates the Worker config and opens an initialization pull request.
+5. The workflow updates the Worker config and pushes an initialization branch; Libreflare opens the pull request.
 6. Review and merge the pull request, then configure any required Worker secrets.
 
 The initialization workflow updates `wrangler.jsonc`, `src/index.ts`, and the selected rules YAML path. If you use an existing repository instead of this template, keep `.github/workflows/libreflare-init.yml`, `scripts/libreflare-init.mts`, `jsonc-parser`, and `ts-morph` available on the selected production branch.
