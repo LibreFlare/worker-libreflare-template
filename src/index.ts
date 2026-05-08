@@ -1,16 +1,16 @@
 import { handleRequest } from '@libreflare/worker-runtime';
 import rulesConfig from '../libreflare.rules.yaml';
 
-const WORKER_ROUTE_PREFIX = '/logging-route';
-
 export default {
 	async fetch(request, env, ctx) {
+		const workerRoutePrefix = getWorkerRoutePrefix(env);
+
 		return handleRequest(request, {
 			getSourceKey: () => env.LOG_SOURCE_KEY,
-			varyByMonth: parseOptionalBoolean(env.LOG_VARY_BY_MONTH, true),
+			varyByMonth: env.LOG_VARY_BY_MONTH ?? true,
 
 			originFetcher: (request) => {
-				const originURL = stripWorkerRoutePrefix(new URL(request.url));
+				const originURL = stripWorkerRoutePrefix(new URL(request.url), workerRoutePrefix);
 				return fetch(originURL, request);
 			},
 
@@ -21,50 +21,39 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
-function stripWorkerRoutePrefix(url: URL): URL {
-	if (url.pathname === WORKER_ROUTE_PREFIX) {
+function stripWorkerRoutePrefix(url: URL, workerRoutePrefix: string): URL {
+	if (url.pathname === workerRoutePrefix) {
 		url.pathname = '/';
 		return url;
 	}
 
-	if (url.pathname.startsWith(`${WORKER_ROUTE_PREFIX}/`)) {
-		url.pathname = url.pathname.slice(WORKER_ROUTE_PREFIX.length);
+	if (url.pathname.startsWith(`${workerRoutePrefix}/`)) {
+		url.pathname = url.pathname.slice(workerRoutePrefix.length);
 	}
 
 	return url;
 }
 
-function parseOptionalBoolean(value: unknown, defaultValue: boolean): boolean {
-	if (value === undefined || value === null || value === '') return defaultValue;
-	if (typeof value !== 'string') throw new Error('LOG_VARY_BY_MONTH must be "true" or "false".');
-
-	const normalized = value.toLowerCase();
-	if (normalized === 'true') return true;
-	if (normalized === 'false') return false;
-	throw new Error('LOG_VARY_BY_MONTH must be "true" or "false".');
+function getWorkerRoutePrefix(env: Env): string {
+	const prefix: string = env.WORKER_ROUTE_PREFIX;
+	if (!prefix.startsWith('/') || prefix === '/' || prefix.endsWith('/')) {
+		throw new Error('WORKER_ROUTE_PREFIX must start with / and must not be / or end with /.');
+	}
+	return prefix;
 }
 
-function parseApiAuthHeaders(value: unknown): Record<string, string> | undefined {
-	if (value === undefined || value === null || value === '') return undefined;
-	if (typeof value !== 'string') throw new Error('LOG_API_AUTH_HEADERS_JSON must be a JSON object string.');
-
-	let parsed: unknown;
+function parseApiAuthHeaders(value?: string): Record<string, string> | undefined {
+	if (!value) return undefined;
 	try {
-		parsed = JSON.parse(value);
+		const parsed = JSON.parse(value) as unknown;
+		if (isStringRecord(parsed)) return parsed;
 	} catch {
-		throw new Error('LOG_API_AUTH_HEADERS_JSON must contain a valid JSON object of string headers.');
+		// The unified error below is clearer than exposing a raw JSON parser exception.
 	}
+	throw new Error('LOG_API_AUTH_HEADERS_JSON must contain a JSON object of string headers.');
+}
 
-	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-		throw new Error('LOG_API_AUTH_HEADERS_JSON must contain a JSON object of string headers.');
-	}
-
-	const headers: Record<string, string> = {};
-	for (const [headerName, headerValue] of Object.entries(parsed)) {
-		if (typeof headerValue !== 'string') {
-			throw new Error('LOG_API_AUTH_HEADERS_JSON must contain only string header values.');
-		}
-		headers[headerName] = headerValue;
-	}
-	return headers;
+function isStringRecord(value: unknown): value is Record<string, string> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+	return Object.values(value).every((item) => typeof item === 'string');
 }

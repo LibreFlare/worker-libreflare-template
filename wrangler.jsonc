@@ -19,6 +19,7 @@
 		}
 	],
 	"vars": {
+		"WORKER_ROUTE_PREFIX": "/logging-route",
 		"LOG_API_URL": "https://logs.example.com/insert/jsonline?_stream_fields=stream",
 		"LOG_SOURCE_KEY": "example-general",
 		"LOG_VARY_BY_MONTH": false

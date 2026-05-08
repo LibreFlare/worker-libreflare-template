@@ -5,18 +5,19 @@ Starter Cloudflare Worker for Libreflare-managed logging projects.
 ## Setup
 
 1. Create a new repository from this template.
-2. Rename the package and Worker in `package.json` and `wrangler.jsonc`.
-3. Update the `routes` entry in `wrangler.jsonc` for your domain.
-4. Set `LOG_API_URL` and `LOG_SOURCE_KEY` in `wrangler.jsonc`.
-5. Run `npm install`.
-6. Run `npm run cf-typegen` after changing Worker bindings or vars.
-7. Connect the repository in the Libreflare dashboard and keep the rules config path set to `libreflare.rules.yaml`.
+2. Add the repository to the Libreflare GitHub App installation's selected repositories.
+3. Select the repository in the Libreflare dashboard and configure the initial rewrite.
+4. Libreflare dispatches `.github/workflows/libreflare-init.yml`.
+5. The workflow updates the Worker config and opens an initialization pull request.
+6. Review and merge the pull request, then configure any required Worker secrets.
 
-The dashboard default Worker route prefix is `/logging-route`. Keep that prefix unless you also update `WORKER_ROUTE_PREFIX` in `src/index.ts` and the project route prefix in Libreflare.
+The initialization workflow updates `wrangler.jsonc`, `src/index.ts`, and the selected rules YAML path. If you use an existing repository instead of this template, keep `.github/workflows/libreflare-init.yml`, `scripts/libreflare-init.mts`, `jsonc-parser`, and `ts-morph` available on the selected production branch.
+
+The template starts with `/logging-route` in `wrangler.jsonc`. The workflow keeps `WORKER_ROUTE_PREFIX`, the Worker route pattern, and the project route prefix in Libreflare aligned.
 
 ## Logging API Auth
 
-If the logging API needs static request headers, configure `LOG_API_AUTH_HEADERS_JSON` as a Worker secret containing a JSON object:
+`LOG_API_URL` and `LOG_SOURCE_KEY` are written to `wrangler.jsonc` by the initialization workflow. If the logging API needs static request headers, configure `LOG_API_AUTH_HEADERS_JSON` as a Worker secret containing a JSON object:
 
 ```sh
 wrangler secret put LOG_API_AUTH_HEADERS_JSON

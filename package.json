@@ -6,13 +6,16 @@
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
-		"typecheck": "tsc --noEmit",
+		"typecheck": "tsc -b",
 		"lint": "eslint src/**/*.ts",
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
+		"@types/node": "^24.12.3",
 		"eslint": "^10.2.0",
+		"jsonc-parser": "^3.3.1",
+		"ts-morph": "^28.0.0",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.58.1",
 		"wrangler": "^4.54.0"

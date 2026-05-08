@@ -1,0 +1,132 @@
+name: Libreflare initialization
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Libreflare change request ID
+        required: true
+        type: string
+      project_name:
+        description: Libreflare project name
+        required: true
+        type: string
+      worker_name:
+        description: Cloudflare Worker name
+        required: true
+        type: string
+      domain_name:
+        description: Managed domain name
+        required: true
+        type: string
+      worker_route_prefix:
+        description: Worker route path prefix
+        required: true
+        type: string
+      rules_config_path:
+        description: Rules YAML path
+        required: true
+        type: string
+      initial_rule_expression:
+        description: Initial Libreflare rule expression
+        required: true
+        type: string
+      log_api_url:
+        description: Logging API URL
+        required: true
+        type: string
+      log_source_key:
+        description: Logging source key
+        required: true
+        type: string
+      log_vary_by_month:
+        description: Whether logs vary by month, true or false
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  initialize:
+    name: Open initialization PR
+    runs-on: ubuntu-latest
+    env:
+      LIBREFLARE_BASE_BRANCH: "${{ github.ref_name }}"
+      LIBREFLARE_BRANCH_NAME: "libreflare/init/${{ inputs.request_id }}"
+      LIBREFLARE_PULL_REQUEST_TITLE: "Initialize Libreflare project: ${{ inputs.project_name }}"
+      LIBREFLARE_REQUEST_ID: "${{ inputs.request_id }}"
+      LIBREFLARE_PROJECT_NAME: "${{ inputs.project_name }}"
+      LIBREFLARE_WORKER_NAME: "${{ inputs.worker_name }}"
+      LIBREFLARE_DOMAIN_NAME: "${{ inputs.domain_name }}"
+      LIBREFLARE_WORKER_ROUTE_PREFIX: "${{ inputs.worker_route_prefix }}"
+      LIBREFLARE_RULES_CONFIG_PATH: "${{ inputs.rules_config_path }}"
+      LIBREFLARE_INITIAL_RULE_EXPRESSION: "${{ inputs.initial_rule_expression }}"
+      LIBREFLARE_LOG_API_URL: "${{ inputs.log_api_url }}"
+      LIBREFLARE_LOG_SOURCE_KEY: "${{ inputs.log_source_key }}"
+      LIBREFLARE_LOG_VARY_BY_MONTH: "${{ inputs.log_vary_by_month }}"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update Libreflare files
+        run: node scripts/libreflare-init.mts
+
+      - name: Open Libreflare initialization PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B "$LIBREFLARE_BRANCH_NAME"
+          git add wrangler.jsonc src/index.ts "$LIBREFLARE_RULES_CONFIG_PATH"
+          if [ "$LIBREFLARE_RULES_CONFIG_PATH" != "libreflare.rules.yaml" ]; then
+            git add -A libreflare.rules.yaml
+          fi
+
+          if git diff --cached --quiet; then
+            echo "No initialization changes were produced. The repository may already contain the requested Libreflare configuration."
+            exit 1
+          fi
+
+          git commit -m "$LIBREFLARE_PULL_REQUEST_TITLE"
+          git fetch origin "$LIBREFLARE_BRANCH_NAME:refs/remotes/origin/$LIBREFLARE_BRANCH_NAME" || true
+          git push --force-with-lease origin "$LIBREFLARE_BRANCH_NAME:$LIBREFLARE_BRANCH_NAME"
+
+          body_file="$(mktemp)"
+          cat > "$body_file" <<EOF
+          Libreflare initialized ${LIBREFLARE_PROJECT_NAME}.
+
+          - Worker: ${LIBREFLARE_WORKER_NAME}
+          - Domain: ${LIBREFLARE_DOMAIN_NAME}
+          - Worker route prefix: ${LIBREFLARE_WORKER_ROUTE_PREFIX}
+          - Rules config: ${LIBREFLARE_RULES_CONFIG_PATH}
+
+          Logging auth headers are not stored in this repository. If the logging API requires static auth headers, configure LOG_API_AUTH_HEADERS_JSON as a Worker secret.
+          EOF
+
+          if existing_pr_url="$(gh pr view "$LIBREFLARE_BRANCH_NAME" --json url --jq .url 2>/dev/null)"; then
+            gh pr edit "$LIBREFLARE_BRANCH_NAME" --title "$LIBREFLARE_PULL_REQUEST_TITLE" --body-file "$body_file"
+            echo "Updated initialization pull request: $existing_pr_url"
+          else
+            gh pr create \
+              --base "$LIBREFLARE_BASE_BRANCH" \
+              --head "$LIBREFLARE_BRANCH_NAME" \
+              --title "$LIBREFLARE_PULL_REQUEST_TITLE" \
+              --body-file "$body_file"
+          fi
