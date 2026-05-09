@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { minifyRuleExpression, validateRuleExpressionSyntax } from '@libreflare/worker-runtime/rule-evaluator';
 import { parse as parseJsonc } from 'jsonc-parser';
@@ -25,7 +25,6 @@ type WorkerConfig =
 	| { managed: false }
 	| {
 			managed: true;
-			name: string;
 			domain: string;
 			routePrefix: string;
 	  };
@@ -40,65 +39,69 @@ type LoggingConfig =
 			auth: boolean;
 	  };
 
-const config = readLibreflareConfig();
+const config = maybeReadLibreflareConfig();
 const wranglerConfig = readBaseWranglerConfig();
-const validation = validateRuleExpressionSyntax(config.rewriteRule.expression);
-if (validation.errors.length > 0) throw new Error(`Rewrite rule expression is invalid:\n${validation.errors.join('\n')}`);
-if (validation.minifiedLength > MAX_CLOUDFLARE_RULE_LENGTH) {
-	throw new Error(`Minified rewrite rule expression is ${validation.minifiedLength} characters; Cloudflare limit is ${MAX_CLOUDFLARE_RULE_LENGTH}.`);
-}
-const minifiedExpression = minifyRuleExpression(config.rewriteRule.expression).expression;
 
-const vars: Record<string, unknown> = {
-	...(isRecord(wranglerConfig.vars) ? wranglerConfig.vars : {}),
-	LIBREFLARE_RULE_EXPRESSION: minifiedExpression,
-};
-wranglerConfig.vars = vars;
+if (config) {
+	const validation = validateRuleExpressionSyntax(config.rewriteRule.expression);
+	if (validation.errors.length > 0) throw new Error(`Rewrite rule expression is invalid:\n${validation.errors.join('\n')}`);
+	if (validation.minifiedLength > MAX_CLOUDFLARE_RULE_LENGTH) {
+		throw new Error(`Minified rewrite rule expression is ${validation.minifiedLength} characters; Cloudflare limit is ${MAX_CLOUDFLARE_RULE_LENGTH}.`);
+	}
+	const minifiedExpression = minifyRuleExpression(config.rewriteRule.expression).expression;
 
-if (config.worker.managed) {
-	wranglerConfig.name = config.worker.name;
-	wranglerConfig.routes = [
-		{
-			pattern: `*${config.worker.domain}${config.worker.routePrefix}/*`,
-			zone_name: config.worker.domain,
-		},
-	];
-	vars.WORKER_ROUTE_PREFIX = config.worker.routePrefix;
-}
+	const vars: Record<string, unknown> = {
+		...(isRecord(wranglerConfig.vars) ? wranglerConfig.vars : {}),
+		LIBREFLARE_RULE_EXPRESSION: minifiedExpression,
+	};
+	wranglerConfig.vars = vars;
 
-if (config.logging.managed) {
-	vars.LOG_API_URL = config.logging.apiUrl;
-	vars.LOG_SOURCE_KEY = config.logging.sourceKey;
-	vars.LOG_VARY_BY_MONTH = config.logging.varyByMonth;
+	if (config.worker.managed) {
+		wranglerConfig.routes = [
+			{
+				pattern: `*${config.worker.domain}${config.worker.routePrefix}/*`,
+				zone_name: config.worker.domain,
+			},
+		];
+		vars.WORKER_ROUTE_PREFIX = config.worker.routePrefix;
+	}
 
-	if (config.logging.auth) {
-		delete vars.LOG_API_AUTH_HEADERS_JSON;
-		wranglerConfig.secrets = {
-			...(isRecord(wranglerConfig.secrets) ? wranglerConfig.secrets : {}),
-			required: uniqueStrings([
-				...(requiredSecrets(wranglerConfig.secrets).filter((secret) => secret !== LOG_AUTH_HEADERS_BINDING)),
-				LOG_AUTH_HEADERS_BINDING,
-			]),
-		};
-	} else {
-		vars.LOG_API_AUTH_HEADERS_JSON = '';
-		const existingSecrets = isRecord(wranglerConfig.secrets) ? { ...wranglerConfig.secrets } : {};
-		const required = requiredSecrets(existingSecrets).filter((secret) => secret !== LOG_AUTH_HEADERS_BINDING);
-		if (required.length > 0) {
-			existingSecrets.required = required;
-			wranglerConfig.secrets = existingSecrets;
+	if (config.logging.managed) {
+		vars.LOG_API_URL = config.logging.apiUrl;
+		vars.LOG_SOURCE_KEY = config.logging.sourceKey;
+		vars.LOG_VARY_BY_MONTH = config.logging.varyByMonth;
+
+		if (config.logging.auth) {
+			delete vars.LOG_API_AUTH_HEADERS_JSON;
+			wranglerConfig.secrets = {
+				...(isRecord(wranglerConfig.secrets) ? wranglerConfig.secrets : {}),
+				required: uniqueStrings([
+					...(requiredSecrets(wranglerConfig.secrets).filter((secret) => secret !== LOG_AUTH_HEADERS_BINDING)),
+					LOG_AUTH_HEADERS_BINDING,
+				]),
+			};
 		} else {
-			delete existingSecrets.required;
-			wranglerConfig.secrets = Object.keys(existingSecrets).length > 0 ? existingSecrets : undefined;
+			vars.LOG_API_AUTH_HEADERS_JSON = '';
+			const existingSecrets = isRecord(wranglerConfig.secrets) ? { ...wranglerConfig.secrets } : {};
+			const required = requiredSecrets(existingSecrets).filter((secret) => secret !== LOG_AUTH_HEADERS_BINDING);
+			if (required.length > 0) {
+				existingSecrets.required = required;
+				wranglerConfig.secrets = existingSecrets;
+			} else {
+				delete existingSecrets.required;
+				wranglerConfig.secrets = Object.keys(existingSecrets).length > 0 ? existingSecrets : undefined;
+			}
 		}
 	}
+
+	writeFileSync(GENERATED_WRANGLER_PATH, `${JSON.stringify(wranglerConfig, null, '\t')}\n`);
+	writeDeployConfig('../../wrangler.generated.jsonc');
+} else {
+	writeDeployConfig('../../wrangler.jsonc');
 }
 
-writeFileSync(GENERATED_WRANGLER_PATH, `${JSON.stringify(wranglerConfig, null, '\t')}\n`);
-mkdirSync(dirname(WRANGLER_DEPLOY_CONFIG_PATH), { recursive: true });
-writeFileSync(WRANGLER_DEPLOY_CONFIG_PATH, `${JSON.stringify({ configPath: '../../wrangler.generated.jsonc' }, null, '\t')}\n`);
-
-function readLibreflareConfig(): LibreflareConfig {
+function maybeReadLibreflareConfig(): LibreflareConfig | null {
+	if (!existsSync(CONFIG_PATH)) return null;
 	const parsed = yaml.parse(readFileSync(CONFIG_PATH, 'utf8')) as unknown;
 	if (!isRecord(parsed)) throw new Error(`${CONFIG_PATH} must contain a YAML object.`);
 	if (parsed.version !== 1) throw new Error(`${CONFIG_PATH} version must be 1.`);
@@ -133,7 +136,6 @@ function workerConfig(value: unknown): WorkerConfig {
 	if (!managed) return { managed: false };
 	return {
 		managed: true,
-		name: stringValue(value.name, 'worker.name'),
 		domain: stringValue(value.domain, 'worker.domain'),
 		routePrefix: stringValue(value.routePrefix, 'worker.routePrefix'),
 	};
@@ -155,9 +157,6 @@ function loggingConfig(value: unknown): LoggingConfig {
 
 function validateLibreflareConfig(config: LibreflareConfig): void {
 	if (config.worker.managed) {
-		if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(config.worker.name)) {
-			throw new Error('worker.name must start with a letter or number and may only contain letters, numbers, underscores, and hyphens.');
-		}
 		if (!/^[A-Za-z0-9.-]+$/.test(config.worker.domain) || config.worker.domain.includes('..')) {
 			throw new Error('worker.domain must be a plain domain name.');
 		}
@@ -202,6 +201,11 @@ function requiredSecrets(value: unknown): string[] {
 
 function uniqueStrings(values: string[]): string[] {
 	return [...new Set(values)];
+}
+
+function writeDeployConfig(configPath: string): void {
+	mkdirSync(dirname(WRANGLER_DEPLOY_CONFIG_PATH), { recursive: true });
+	writeFileSync(WRANGLER_DEPLOY_CONFIG_PATH, `${JSON.stringify({ configPath }, null, '\t')}\n`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
