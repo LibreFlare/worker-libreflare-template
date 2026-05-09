@@ -12,29 +12,5 @@
 	"observability": {
 		"enabled": false
 	},
-	"routes": [
-		{
-			"pattern": "*example.com/logging-route/*",
-			"zone_name": "example.com"
-		}
-	],
-	"vars": {
-		"WORKER_ROUTE_PREFIX": "/logging-route",
-		"LOG_API_URL": "https://logs.example.com/insert/jsonline?_stream_fields=stream",
-		"LOG_SOURCE_KEY": "example-general",
-		"LOG_VARY_BY_MONTH": false
-	},
-	"secrets": {
-		"required":[
-			"LOG_API_AUTH_HEADERS_JSON"
-		]
-	},
-	"upload_source_maps": true,
-	"rules": [
-		{
-			"type": "Text",
-			"globs": [ "**/*.yaml" ],
-			"fallthrough": true
-		}
-	]
+	"upload_source_maps": true
 }

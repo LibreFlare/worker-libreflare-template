@@ -1,5 +1,4 @@
 import { handleRequest } from '@libreflare/worker-runtime';
-import rulesConfig from '../libreflare.rules.yaml';
 
 export default {
 	async fetch(request, env, ctx) {
@@ -16,10 +15,14 @@ export default {
 
 			apiURL: env.LOG_API_URL,
 			apiAuthHeaders: parseApiAuthHeaders(env.LOG_API_AUTH_HEADERS_JSON),
-			rulesConfig,
+			rulesConfig: runtimeRulesConfig(env.LIBREFLARE_RULE_EXPRESSION),
 		}, ctx);
 	},
 } satisfies ExportedHandler<Env>;
+
+function runtimeRulesConfig(expression: string): string {
+	return `version: 1\nexpression: ${JSON.stringify(expression)}\n`;
+}
 
 function stripWorkerRoutePrefix(url: URL, workerRoutePrefix: string): URL {
 	if (url.pathname === workerRoutePrefix) {

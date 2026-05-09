@@ -1,2 +1,0 @@
-version: 1
-expression: cf.tls_cipher ne ""

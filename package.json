@@ -3,24 +3,25 @@
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
-		"start": "wrangler dev",
+		"libreflare:config": "node scripts/generate-wrangler-config.mts",
+		"deploy": "npm run libreflare:config && wrangler deploy",
+		"dev": "npm run libreflare:config && wrangler dev",
+		"start": "npm run dev",
 		"typecheck": "tsc -b",
 		"lint": "eslint src/**/*.ts",
-		"cf-typegen": "wrangler types"
+		"cf-typegen": "npm run libreflare:config && wrangler types"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
 		"@types/node": "^24.12.3",
 		"eslint": "^10.2.0",
 		"jsonc-parser": "^3.3.1",
-		"ts-morph": "^28.0.0",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "^8.58.1",
-		"wrangler": "^4.54.0"
+		"wrangler": "^4.54.0",
+		"yaml": "^2.8.4"
 	},
 	"dependencies": {
-		"@libreflare/worker-runtime": "^0.2.1"
+		"@libreflare/worker-runtime": "^0.2.2"
 	}
 }
