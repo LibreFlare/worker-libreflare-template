@@ -9,6 +9,7 @@ const BASE_WRANGLER_PATH = 'wrangler.jsonc';
 const GENERATED_WRANGLER_PATH = 'wrangler.generated.jsonc';
 const WRANGLER_DEPLOY_CONFIG_PATH = '.wrangler/deploy/config.json';
 const LOG_AUTH_HEADERS_BINDING = 'LOG_API_AUTH_HEADERS_JSON';
+const LOG_STATIC_HEADERS_BINDING = 'LOG_API_HEADERS_JSON';
 const MAX_CLOUDFLARE_RULE_LENGTH = 4096;
 
 interface LibreflareConfig {
@@ -29,6 +30,12 @@ type WorkerConfig =
 			routePrefix: string;
 	  };
 
+interface AuthHeadersSecretConfig {
+	binding: string;
+	storeId: string;
+	secretName: string;
+}
+
 type LoggingConfig =
 	| { managed: false }
 	| {
@@ -37,6 +44,8 @@ type LoggingConfig =
 			sourceKey: string;
 			varyByMonth: boolean;
 			auth: boolean;
+			headers?: Record<string, string>;
+			authHeadersSecret?: AuthHeadersSecretConfig;
 	  };
 
 const config = maybeReadLibreflareConfig();
@@ -70,8 +79,21 @@ if (config) {
 		vars.LOG_API_URL = config.logging.apiUrl;
 		vars.LOG_SOURCE_KEY = config.logging.sourceKey;
 		vars.LOG_VARY_BY_MONTH = config.logging.varyByMonth;
+		vars[LOG_STATIC_HEADERS_BINDING] = JSON.stringify(config.logging.headers ?? {});
 
-		if (config.logging.auth) {
+		if (config.logging.authHeadersSecret) {
+			delete vars.LOG_API_AUTH_HEADERS_JSON;
+			removeRequiredSecret(wranglerConfig, config.logging.authHeadersSecret.binding);
+			wranglerConfig.secrets_store_secrets = upsertSecretsStoreBinding(wranglerConfig.secrets_store_secrets, {
+				binding: config.logging.authHeadersSecret.binding,
+				store_id: config.logging.authHeadersSecret.storeId,
+				secret_name: config.logging.authHeadersSecret.secretName,
+			});
+		} else {
+			wranglerConfig.secrets_store_secrets = removeSecretsStoreBinding(wranglerConfig.secrets_store_secrets, LOG_AUTH_HEADERS_BINDING);
+		}
+
+		if (config.logging.auth && !config.logging.authHeadersSecret) {
 			delete vars.LOG_API_AUTH_HEADERS_JSON;
 			wranglerConfig.secrets = {
 				...(isRecord(wranglerConfig.secrets) ? wranglerConfig.secrets : {}),
@@ -81,16 +103,8 @@ if (config) {
 				]),
 			};
 		} else {
-			vars.LOG_API_AUTH_HEADERS_JSON = '';
-			const existingSecrets = isRecord(wranglerConfig.secrets) ? { ...wranglerConfig.secrets } : {};
-			const required = requiredSecrets(existingSecrets).filter((secret) => secret !== LOG_AUTH_HEADERS_BINDING);
-			if (required.length > 0) {
-				existingSecrets.required = required;
-				wranglerConfig.secrets = existingSecrets;
-			} else {
-				delete existingSecrets.required;
-				wranglerConfig.secrets = Object.keys(existingSecrets).length > 0 ? existingSecrets : undefined;
-			}
+			if (!config.logging.authHeadersSecret) vars.LOG_API_AUTH_HEADERS_JSON = '';
+			removeRequiredSecret(wranglerConfig, LOG_AUTH_HEADERS_BINDING);
 		}
 	}
 
@@ -152,6 +166,8 @@ function loggingConfig(value: unknown): LoggingConfig {
 		sourceKey: stringValue(value.sourceKey, 'logging.sourceKey'),
 		varyByMonth: booleanValue(value.varyByMonth, 'logging.varyByMonth'),
 		auth: booleanValue(value.auth, 'logging.auth'),
+		headers: optionalStringRecord(value.headers, 'logging.headers'),
+		authHeadersSecret: optionalAuthHeadersSecret(value.authHeadersSecret),
 	};
 }
 
@@ -172,6 +188,9 @@ function validateLibreflareConfig(config: LibreflareConfig): void {
 			throw new Error('logging.apiUrl must be an absolute http or https URL.');
 		}
 		if (!config.logging.sourceKey.trim()) throw new Error('logging.sourceKey is required.');
+		if (config.logging.authHeadersSecret && config.logging.authHeadersSecret.binding !== LOG_AUTH_HEADERS_BINDING) {
+			throw new Error(`logging.authHeadersSecret.binding must be ${LOG_AUTH_HEADERS_BINDING}.`);
+		}
 	}
 	if (!Number.isInteger(config.rewriteRule.version) || config.rewriteRule.version < 1) {
 		throw new Error('rewriteRule.version must be a positive integer.');
@@ -201,6 +220,62 @@ function requiredSecrets(value: unknown): string[] {
 
 function uniqueStrings(values: string[]): string[] {
 	return [...new Set(values)];
+}
+
+function removeRequiredSecret(config: Record<string, unknown>, binding: string): void {
+	const existingSecrets = isRecord(config.secrets) ? { ...config.secrets } : {};
+	const required = requiredSecrets(existingSecrets).filter((secret) => secret !== binding);
+	if (required.length > 0) {
+		existingSecrets.required = required;
+		config.secrets = existingSecrets;
+	} else {
+		delete existingSecrets.required;
+		config.secrets = Object.keys(existingSecrets).length > 0 ? existingSecrets : undefined;
+	}
+}
+
+function upsertSecretsStoreBinding(value: unknown, binding: { binding: string; store_id: string; secret_name: string }): Array<Record<string, string>> {
+	return [
+		...secretsStoreBindings(value).filter((item) => item.binding !== binding.binding),
+		binding,
+	];
+}
+
+function removeSecretsStoreBinding(value: unknown, binding: string): Array<Record<string, string>> | undefined {
+	const bindings = secretsStoreBindings(value).filter((item) => item.binding !== binding);
+	return bindings.length > 0 ? bindings : undefined;
+}
+
+function secretsStoreBindings(value: unknown): Array<Record<string, string>> {
+	if (!Array.isArray(value)) return [];
+	return value
+		.filter(isRecord)
+		.map((item) => ({
+			binding: stringValue(item.binding, 'secrets_store_secrets.binding'),
+			store_id: stringValue(item.store_id, 'secrets_store_secrets.store_id'),
+			secret_name: stringValue(item.secret_name, 'secrets_store_secrets.secret_name'),
+		}));
+}
+
+function optionalStringRecord(value: unknown, path: string): Record<string, string> | undefined {
+	if (value === undefined || value === null) return undefined;
+	if (!isRecord(value)) throw new Error(`${path} must be an object.`);
+	const record: Record<string, string> = {};
+	for (const [key, item] of Object.entries(value)) {
+		if (typeof item !== 'string') throw new Error(`${path}.${key} must be a string.`);
+		record[key] = item;
+	}
+	return record;
+}
+
+function optionalAuthHeadersSecret(value: unknown): AuthHeadersSecretConfig | undefined {
+	if (value === undefined || value === null) return undefined;
+	if (!isRecord(value)) throw new Error('logging.authHeadersSecret must be an object.');
+	return {
+		binding: stringValue(value.binding, 'logging.authHeadersSecret.binding'),
+		storeId: stringValue(value.storeId, 'logging.authHeadersSecret.storeId'),
+		secretName: stringValue(value.secretName, 'logging.authHeadersSecret.secretName'),
+	};
 }
 
 function writeDeployConfig(configPath: string): void {

@@ -14,7 +14,10 @@ export default {
 			},
 
 			apiURL: env.LOG_API_URL,
-			apiAuthHeaders: parseApiAuthHeaders(env.LOG_API_AUTH_HEADERS_JSON),
+			apiAuthHeaders: {
+				...parseApiHeaders(env.LOG_API_AUTH_HEADERS_JSON),
+				...parseApiHeaders(env.LOG_API_HEADERS_JSON),
+			},
 			rulesConfig: runtimeRulesConfig(env.LIBREFLARE_RULE_EXPRESSION),
 		}, ctx);
 	},
@@ -45,15 +48,15 @@ function getWorkerRoutePrefix(env: Env): string {
 	return prefix;
 }
 
-function parseApiAuthHeaders(value?: string): Record<string, string> | undefined {
-	if (!value) return undefined;
+function parseApiHeaders(value?: string): Record<string, string> {
+	if (!value) return {};
 	try {
 		const parsed = JSON.parse(value) as unknown;
 		if (isStringRecord(parsed)) return parsed;
 	} catch {
 		// The unified error below is clearer than exposing a raw JSON parser exception.
 	}
-	throw new Error('LOG_API_AUTH_HEADERS_JSON must contain a JSON object of string headers.');
+	throw new Error('Logging API header bindings must contain a JSON object of string headers.');
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {

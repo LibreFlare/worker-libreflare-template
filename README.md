@@ -10,7 +10,7 @@ Starter Cloudflare Worker for Libreflare-managed logging projects.
 4. Add the repository to the Libreflare GitHub App installation's selected repositories.
 5. Select the unrouted Cloudflare Worker in the Libreflare dashboard and configure the initial rewrite.
 6. Libreflare opens a pull request that writes `libreflare.config.yaml`.
-7. Review and merge the pull request, then configure `LOG_API_AUTH_HEADERS_JSON` as a Worker secret if `logging.auth` is true.
+7. Review and merge the pull request, then configure `LOG_API_AUTH_HEADERS_JSON` as a Worker secret if `logging.auth` is true and Libreflare did not supply an `authHeadersSecret`.
 
 The template keeps stable Worker settings, including the Worker name, in `wrangler.jsonc`. Project-specific route, logging vars, required secrets, and rule expression are read from `libreflare.config.yaml` and written to `wrangler.generated.jsonc` before `dev` and `deploy`. The generator also writes `.wrangler/deploy/config.json`, which redirects Wrangler's deploy/dev commands to the generated config.
 
@@ -22,7 +22,11 @@ If `worker.managed` or `logging.managed` is false, the generator leaves that sec
 
 ## Logging API Auth
 
-When `logging.auth` is true, the generated Wrangler config marks `LOG_API_AUTH_HEADERS_JSON` as a required secret. Configure it with a JSON object of static request headers:
+`logging.headers` is written into `LOG_API_HEADERS_JSON` as static request headers. Libreflare uses this for tenant headers such as VictoriaLogs `AccountID` and `ProjectID`.
+
+For fully managed Libreflare logging, VictoriaLogs `AccountID` is assigned per Libreflare organization and `ProjectID` is assigned per domain. Libreflare generates each value locally as a random non-zero unsigned 32-bit integer serialized as a decimal string, in the range `1` through `4294967295`. `AccountID` is globally unique across Libreflare organizations; `ProjectID` is unique within its organization.
+
+When `logging.auth` is true without `logging.authHeadersSecret`, the generated Wrangler config marks `LOG_API_AUTH_HEADERS_JSON` as a required secret. Configure it with a JSON object of static request headers:
 
 ```sh
 wrangler secret put LOG_API_AUTH_HEADERS_JSON
@@ -34,7 +38,9 @@ Example secret value:
 {"Authorization":"Bearer token"}
 ```
 
-When `logging.auth` is false, the generated Wrangler config binds `LOG_API_AUTH_HEADERS_JSON` as an empty plain variable.
+When `logging.authHeadersSecret` is present, the generated Wrangler config binds `LOG_API_AUTH_HEADERS_JSON` from Cloudflare Secrets Store instead of requiring a Worker secret. Fully managed Libreflare logging uses this mode for the generated Cloudflare Access Service Credential.
+
+When `logging.auth` is false and no `authHeadersSecret` is present, the generated Wrangler config binds `LOG_API_AUTH_HEADERS_JSON` as an empty plain variable.
 
 ## Managed Config
 
@@ -52,6 +58,13 @@ logging:
   sourceKey: example-general
   varyByMonth: false
   auth: false
+  headers:
+    AccountID: "123456789"
+    ProjectID: "987654321"
+  authHeadersSecret:
+    binding: LOG_API_AUTH_HEADERS_JSON
+    storeId: 00000000000000000000000000000000
+    secretName: LIBREFLARE_LOGGING_AUTH_HEADERS
 rewriteRule:
   version: 1
   expression: |
