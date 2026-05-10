@@ -50,6 +50,7 @@ Libreflare writes managed changes to `libreflare.config.yaml`:
 version: 1
 worker:
   managed: true
+  zoneName: example.com
   domain: example.com
   routePrefix: /logging-route
 logging:
@@ -72,3 +73,5 @@ rewriteRule:
 ```
 
 Do not modify this file manually. Deployment metadata belongs in Libreflare, not in the Worker repository.
+
+`worker.domain` may be the bare zone name, `*.example.com`, or a concrete subdomain under `worker.zoneName`.

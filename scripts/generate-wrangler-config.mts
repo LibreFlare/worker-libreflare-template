@@ -26,6 +26,7 @@ type WorkerConfig =
 	| { managed: false }
 	| {
 			managed: true;
+			zoneName?: string;
 			domain: string;
 			routePrefix: string;
 	  };
@@ -66,10 +67,11 @@ if (config) {
 	wranglerConfig.vars = vars;
 
 	if (config.worker.managed) {
+		const routeHost = config.worker.zoneName ? config.worker.domain : `*${config.worker.domain}`;
 		wranglerConfig.routes = [
 			{
-				pattern: `*${config.worker.domain}${config.worker.routePrefix}/*`,
-				zone_name: config.worker.domain,
+				pattern: `${routeHost}${config.worker.routePrefix}/*`,
+				zone_name: config.worker.zoneName ?? config.worker.domain,
 			},
 		];
 		vars.WORKER_ROUTE_PREFIX = config.worker.routePrefix;
@@ -150,6 +152,7 @@ function workerConfig(value: unknown): WorkerConfig {
 	if (!managed) return { managed: false };
 	return {
 		managed: true,
+		zoneName: optionalStringValue(value.zoneName, 'worker.zoneName'),
 		domain: stringValue(value.domain, 'worker.domain'),
 		routePrefix: stringValue(value.routePrefix, 'worker.routePrefix'),
 	};
@@ -173,8 +176,16 @@ function loggingConfig(value: unknown): LoggingConfig {
 
 function validateLibreflareConfig(config: LibreflareConfig): void {
 	if (config.worker.managed) {
-		if (!/^[A-Za-z0-9.-]+$/.test(config.worker.domain) || config.worker.domain.includes('..')) {
-			throw new Error('worker.domain must be a plain domain name.');
+		const zoneName = config.worker.zoneName;
+		if (zoneName && !isPlainDomain(zoneName)) {
+			throw new Error('worker.zoneName must be a plain domain name.');
+		}
+		if (zoneName) {
+			if (!validRouteDomain(config.worker.domain, zoneName)) {
+				throw new Error('worker.domain must be the zone name, a wildcard subdomain, or a subdomain of worker.zoneName.');
+			}
+		} else if (!isPlainDomain(config.worker.domain)) {
+			throw new Error('worker.domain must be a plain domain name when worker.zoneName is not set.');
 		}
 		if (!config.worker.routePrefix.startsWith('/') || config.worker.routePrefix === '/' || config.worker.routePrefix.endsWith('/')) {
 			throw new Error('worker.routePrefix must start with / and must not be / or end with /.');
@@ -203,9 +214,31 @@ function stringValue(value: unknown, path: string): string {
 	return value;
 }
 
+function optionalStringValue(value: unknown, path: string): string | undefined {
+	if (value === undefined || value === null) return undefined;
+	return stringValue(value, path);
+}
+
 function booleanValue(value: unknown, path: string): boolean {
 	if (typeof value !== 'boolean') throw new Error(`${path} must be a boolean.`);
 	return value;
+}
+
+function validRouteDomain(domain: string, zoneName: string): boolean {
+	const normalizedDomain = domain.toLowerCase();
+	const normalizedZone = zoneName.toLowerCase();
+	if (normalizedDomain === normalizedZone) return true;
+	if (normalizedDomain === `*.${normalizedZone}`) return true;
+	if (normalizedDomain.includes('*')) return false;
+	return isPlainDomain(normalizedDomain) && normalizedDomain.endsWith(`.${normalizedZone}`);
+}
+
+function isPlainDomain(value: string): boolean {
+	const normalized = value.trim().toLowerCase();
+	if (normalized.includes('..')) return false;
+	const labels = normalized.split('.');
+	if (labels.length < 2) return false;
+	return labels.every((label) => Boolean(label) && /^[a-z0-9-]+$/.test(label) && !label.startsWith('-') && !label.endsWith('-'));
 }
 
 function numberValue(value: unknown, path: string): number {
