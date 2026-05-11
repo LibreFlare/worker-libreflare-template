@@ -22,9 +22,9 @@ If `worker.managed` or `logging.managed` is false, the generator leaves that sec
 
 ## Logging API Auth
 
-`logging.headers` is written into `LOG_API_HEADERS_JSON` as static request headers. Libreflare uses this for tenant headers such as VictoriaLogs `AccountID` and `ProjectID`.
+`logging.headers` is written into `LOG_API_HEADERS_JSON` as a JSON object Worker variable, not a stringified JSON value. Libreflare uses this for the signed `X-Libreflare-Tenant-JWT` header consumed by vmauth.
 
-For fully managed Libreflare logging, VictoriaLogs `AccountID` is assigned per Libreflare organization and `ProjectID` is assigned per domain. Libreflare generates each value locally as a random non-zero unsigned 32-bit integer serialized as a decimal string, in the range `1` through `4294967295`. `AccountID` is globally unique across Libreflare organizations; `ProjectID` is unique within its organization.
+For fully managed Libreflare logging, VictoriaLogs `AccountID` is assigned per Libreflare organization and `ProjectID` is assigned per domain. Libreflare signs those values into `X-Libreflare-Tenant-JWT`; vmauth verifies the signature and forwards the mapped `AccountID` and `ProjectID` headers to VictoriaLogs. The Cloudflare Access Service Credential remains separate and is used for immediate access revocation.
 
 When `logging.auth` is true without `logging.authHeadersSecret`, the generated Wrangler config marks `LOG_API_AUTH_HEADERS_JSON` as a required secret. Configure it with a JSON object of static request headers:
 
@@ -58,10 +58,9 @@ logging:
   apiUrl: https://logs.example.com/insert/jsonline?_stream_fields=stream
   sourceKey: example-general
   varyByMonth: false
-  auth: false
+  auth: true
   headers:
-    AccountID: "123456789"
-    ProjectID: "987654321"
+    X-Libreflare-Tenant-JWT: "Bearer eyJ..."
   authHeadersSecret:
     binding: LOG_API_AUTH_HEADERS_JSON
     storeId: 00000000000000000000000000000000

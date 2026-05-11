@@ -16,7 +16,7 @@ export default {
 			apiURL: env.LOG_API_URL,
 			apiAuthHeaders: {
 				...parseApiHeaders(env.LOG_API_AUTH_HEADERS_JSON),
-				...parseApiHeaders(env.LOG_API_HEADERS_JSON),
+				...env.LOG_API_HEADERS_JSON,
 			},
 			rulesConfig: runtimeRulesConfig(env.LIBREFLARE_RULE_EXPRESSION),
 		}, ctx);

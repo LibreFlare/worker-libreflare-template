@@ -81,7 +81,7 @@ if (config) {
 		vars.LOG_API_URL = config.logging.apiUrl;
 		vars.LOG_SOURCE_KEY = config.logging.sourceKey;
 		vars.LOG_VARY_BY_MONTH = config.logging.varyByMonth;
-		vars[LOG_STATIC_HEADERS_BINDING] = JSON.stringify(config.logging.headers ?? {});
+		vars[LOG_STATIC_HEADERS_BINDING] = config.logging.headers ?? {};
 
 		if (config.logging.authHeadersSecret) {
 			delete vars.LOG_API_AUTH_HEADERS_JSON;
