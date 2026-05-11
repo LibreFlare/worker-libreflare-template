@@ -22,6 +22,6 @@
 		"yaml": "^2.8.4"
 	},
 	"dependencies": {
-		"@libreflare/worker-runtime": "^0.2.2"
+		"@libreflare/worker-runtime": "^0.3.0"
 	}
 }

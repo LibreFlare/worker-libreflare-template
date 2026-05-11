@@ -8,8 +8,8 @@ const CONFIG_PATH = 'libreflare.config.yaml';
 const BASE_WRANGLER_PATH = 'wrangler.jsonc';
 const GENERATED_WRANGLER_PATH = 'wrangler.generated.jsonc';
 const WRANGLER_DEPLOY_CONFIG_PATH = '.wrangler/deploy/config.json';
+const LIBREFLARE_CONFIG_BINDING = 'LIBREFLARE_CONFIG';
 const LOG_AUTH_HEADERS_BINDING = 'LOG_API_AUTH_HEADERS_JSON';
-const LOG_STATIC_HEADERS_BINDING = 'LOG_API_HEADERS_JSON';
 const MAX_CLOUDFLARE_RULE_LENGTH = 4096;
 
 interface LibreflareConfig {
@@ -23,7 +23,7 @@ interface LibreflareConfig {
 }
 
 type WorkerConfig =
-	| { managed: false }
+	| { managed: false; routePrefix?: string }
 	| {
 			managed: true;
 			zoneName?: string;
@@ -49,6 +49,19 @@ type LoggingConfig =
 			authHeadersSecret?: AuthHeadersSecretConfig;
 	  };
 
+interface LibreflareRuntimeConfig {
+	version: 1;
+	ruleExpression: string;
+	workerRoutePrefix?: string;
+	logging: {
+		apiUrl: string;
+		sourceKey: string;
+		varyByMonth?: boolean;
+		headers?: Record<string, string>;
+		authHeadersBinding?: string;
+	};
+}
+
 const config = maybeReadLibreflareConfig();
 const wranglerConfig = readBaseWranglerConfig();
 
@@ -56,13 +69,14 @@ if (config) {
 	const validation = validateRuleExpressionSyntax(config.rewriteRule.expression);
 	if (validation.errors.length > 0) throw new Error(`Rewrite rule expression is invalid:\n${validation.errors.join('\n')}`);
 	if (validation.minifiedLength > MAX_CLOUDFLARE_RULE_LENGTH) {
-		throw new Error(`Minified rewrite rule expression is ${validation.minifiedLength} characters; Cloudflare limit is ${MAX_CLOUDFLARE_RULE_LENGTH}.`);
+		throw new Error(
+			`Minified rewrite rule expression is ${validation.minifiedLength} characters; Cloudflare limit is ${MAX_CLOUDFLARE_RULE_LENGTH}.`,
+		);
 	}
 	const minifiedExpression = minifyRuleExpression(config.rewriteRule.expression).expression;
 
 	const vars: Record<string, unknown> = {
 		...(isRecord(wranglerConfig.vars) ? wranglerConfig.vars : {}),
-		LIBREFLARE_RULE_EXPRESSION: minifiedExpression,
 	};
 	wranglerConfig.vars = vars;
 
@@ -74,17 +88,26 @@ if (config) {
 				zone_name: config.worker.zoneName ?? config.worker.domain,
 			},
 		];
-		vars.WORKER_ROUTE_PREFIX = config.worker.routePrefix;
 	}
 
 	if (config.logging.managed) {
-		vars.LOG_API_URL = config.logging.apiUrl;
-		vars.LOG_SOURCE_KEY = config.logging.sourceKey;
-		vars.LOG_VARY_BY_MONTH = config.logging.varyByMonth;
-		vars[LOG_STATIC_HEADERS_BINDING] = config.logging.headers ?? {};
+		const workerRoutePrefix = runtimeWorkerRoutePrefix(config.worker);
+		const runtimeConfig: LibreflareRuntimeConfig = {
+			version: 1,
+			ruleExpression: minifiedExpression,
+			...(workerRoutePrefix ? { workerRoutePrefix } : {}),
+			logging: {
+				apiUrl: config.logging.apiUrl,
+				sourceKey: config.logging.sourceKey,
+				varyByMonth: config.logging.varyByMonth,
+				...(config.logging.headers ? { headers: config.logging.headers } : {}),
+				...(config.logging.auth || config.logging.authHeadersSecret ? { authHeadersBinding: LOG_AUTH_HEADERS_BINDING } : {}),
+			},
+		};
+		vars[LIBREFLARE_CONFIG_BINDING] = runtimeConfig;
 
 		if (config.logging.authHeadersSecret) {
-			delete vars.LOG_API_AUTH_HEADERS_JSON;
+			delete vars[LOG_AUTH_HEADERS_BINDING];
 			removeRequiredSecret(wranglerConfig, config.logging.authHeadersSecret.binding);
 			wranglerConfig.secrets_store_secrets = upsertSecretsStoreBinding(wranglerConfig.secrets_store_secrets, {
 				binding: config.logging.authHeadersSecret.binding,
@@ -96,16 +119,15 @@ if (config) {
 		}
 
 		if (config.logging.auth && !config.logging.authHeadersSecret) {
-			delete vars.LOG_API_AUTH_HEADERS_JSON;
+			delete vars[LOG_AUTH_HEADERS_BINDING];
 			wranglerConfig.secrets = {
 				...(isRecord(wranglerConfig.secrets) ? wranglerConfig.secrets : {}),
 				required: uniqueStrings([
-					...(requiredSecrets(wranglerConfig.secrets).filter((secret) => secret !== LOG_AUTH_HEADERS_BINDING)),
+					...requiredSecrets(wranglerConfig.secrets).filter((secret) => secret !== LOG_AUTH_HEADERS_BINDING),
 					LOG_AUTH_HEADERS_BINDING,
 				]),
 			};
 		} else {
-			if (!config.logging.authHeadersSecret) vars.LOG_API_AUTH_HEADERS_JSON = '';
 			removeRequiredSecret(wranglerConfig, LOG_AUTH_HEADERS_BINDING);
 		}
 	}
@@ -149,7 +171,13 @@ function workerConfig(value: unknown): WorkerConfig {
 	if (value === undefined || value === null) return { managed: false };
 	if (!isRecord(value)) throw new Error(`${CONFIG_PATH} worker must be an object.`);
 	const managed = value.managed === undefined ? true : booleanValue(value.managed, 'worker.managed');
-	if (!managed) return { managed: false };
+	if (!managed) {
+		return {
+			managed: false,
+			routePrefix: optionalStringValue(value.routePrefix, 'worker.routePrefix'),
+		};
+	}
+
 	return {
 		managed: true,
 		zoneName: optionalStringValue(value.zoneName, 'worker.zoneName'),
@@ -190,6 +218,10 @@ function validateLibreflareConfig(config: LibreflareConfig): void {
 		if (!config.worker.routePrefix.startsWith('/') || config.worker.routePrefix === '/' || config.worker.routePrefix.endsWith('/')) {
 			throw new Error('worker.routePrefix must start with / and must not be / or end with /.');
 		}
+	} else if (config.worker.routePrefix) {
+		if (!config.worker.routePrefix.startsWith('/') || config.worker.routePrefix === '/' || config.worker.routePrefix.endsWith('/')) {
+			throw new Error('worker.routePrefix must start with / and must not be / or end with /.');
+		}
 	}
 	if (config.logging.managed) {
 		try {
@@ -207,6 +239,10 @@ function validateLibreflareConfig(config: LibreflareConfig): void {
 		throw new Error('rewriteRule.version must be a positive integer.');
 	}
 	if (!config.rewriteRule.expression.trim()) throw new Error('rewriteRule.expression is required.');
+}
+
+function runtimeWorkerRoutePrefix(config: WorkerConfig): string | undefined {
+	return config.managed ? config.routePrefix : config.routePrefix;
 }
 
 function stringValue(value: unknown, path: string): string {
@@ -267,11 +303,11 @@ function removeRequiredSecret(config: Record<string, unknown>, binding: string):
 	}
 }
 
-function upsertSecretsStoreBinding(value: unknown, binding: { binding: string; store_id: string; secret_name: string }): Array<Record<string, string>> {
-	return [
-		...secretsStoreBindings(value).filter((item) => item.binding !== binding.binding),
-		binding,
-	];
+function upsertSecretsStoreBinding(
+	value: unknown,
+	binding: { binding: string; store_id: string; secret_name: string },
+): Array<Record<string, string>> {
+	return [...secretsStoreBindings(value).filter((item) => item.binding !== binding.binding), binding];
 }
 
 function removeSecretsStoreBinding(value: unknown, binding: string): Array<Record<string, string>> | undefined {
@@ -281,13 +317,11 @@ function removeSecretsStoreBinding(value: unknown, binding: string): Array<Recor
 
 function secretsStoreBindings(value: unknown): Array<Record<string, string>> {
 	if (!Array.isArray(value)) return [];
-	return value
-		.filter(isRecord)
-		.map((item) => ({
-			binding: stringValue(item.binding, 'secrets_store_secrets.binding'),
-			store_id: stringValue(item.store_id, 'secrets_store_secrets.store_id'),
-			secret_name: stringValue(item.secret_name, 'secrets_store_secrets.secret_name'),
-		}));
+	return value.filter(isRecord).map((item) => ({
+		binding: stringValue(item.binding, 'secrets_store_secrets.binding'),
+		store_id: stringValue(item.store_id, 'secrets_store_secrets.store_id'),
+		secret_name: stringValue(item.secret_name, 'secrets_store_secrets.secret_name'),
+	}));
 }
 
 function optionalStringRecord(value: unknown, path: string): Record<string, string> | undefined {
