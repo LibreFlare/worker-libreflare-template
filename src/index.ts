@@ -15,7 +15,7 @@ export default {
 
 			apiURL: env.LOG_API_URL,
 			apiAuthHeaders: {
-				...parseApiHeaders(env.LOG_API_AUTH_HEADERS_JSON),
+				...(await apiAuthHeaders(env.LOG_API_AUTH_HEADERS_JSON)),
 				...env.LOG_API_HEADERS_JSON,
 			},
 			rulesConfig: runtimeRulesConfig(env.LIBREFLARE_RULE_EXPRESSION),
@@ -48,6 +48,13 @@ function getWorkerRoutePrefix(env: Env): string {
 	return prefix;
 }
 
+async function apiAuthHeaders(binding?: string | SecretsStoreSecret): Promise<Record<string, string>> {
+	if (!binding) return {};
+	if (typeof binding === 'string') return parseApiHeaders(binding);
+	if (isSecretsStoreSecret(binding)) return parseApiHeaders(await binding.get());
+	throw new Error('LOG_API_AUTH_HEADERS_JSON must be a JSON string or a Secrets Store secret binding.');
+}
+
 function parseApiHeaders(value?: string): Record<string, string> {
 	if (!value) return {};
 	try {
@@ -62,4 +69,9 @@ function parseApiHeaders(value?: string): Record<string, string> {
 function isStringRecord(value: unknown): value is Record<string, string> {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
 	return Object.values(value).every((item) => typeof item === 'string');
+}
+
+function isSecretsStoreSecret(value: unknown): value is SecretsStoreSecret {
+	if (!value || typeof value !== 'object') return false;
+	return typeof (value as { get?: unknown }).get === 'function';
 }
