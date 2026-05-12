@@ -12,11 +12,11 @@ Starter Cloudflare Worker for Libreflare-managed logging projects.
 6. Libreflare opens a pull request that writes `libreflare.config.yaml`.
 7. Review and merge the pull request, then configure `LOG_API_AUTH_HEADERS_JSON` as a Worker secret if `logging.auth` is true and Libreflare did not supply an `authHeadersSecret`.
 
-The template keeps stable Worker settings, including the Worker name, in `wrangler.jsonc`. Project-specific route, runtime config, required secrets, and rule expression are read from `libreflare.config.yaml` and written to `wrangler.generated.jsonc` before `dev` and `deploy`. The generator also writes `.wrangler/deploy/config.json`, which redirects Wrangler's deploy/dev commands to the generated config.
+The template keeps stable Worker settings, including the Worker name, in `wrangler.jsonc`. Project-specific route, runtime config, required secrets, and rule expression are read from `libreflare.config.yaml` and written to `wrangler.generated.jsonc` before `dev` and `deploy` by `@libreflare/worker-cli`. The CLI also writes `.wrangler/deploy/config.json`, which redirects Wrangler's deploy/dev commands to the generated config.
 
-Before Libreflare writes `libreflare.config.yaml`, the generator points Wrangler at the base `wrangler.jsonc` so the first Workers Build deployment can create the Worker without routes.
+Before Libreflare writes `libreflare.config.yaml`, `libreflare-worker config generate` points Wrangler at the base `wrangler.jsonc` so the first Workers Build deployment can create the Worker without routes.
 
-If `worker.managed` is false, the generator leaves Worker routes from the base Wrangler config untouched. If `worker.routePrefix` is still present, the runtime strips that prefix before forwarding to origin; otherwise custom Worker code must pass an `originFetcher` to `handleLibreflareRequest`.
+If `worker.managed` is false, the CLI leaves Worker routes from the base Wrangler config untouched. If `worker.routePrefix` is still present, the runtime strips that prefix before forwarding to origin; otherwise custom Worker code must pass an `originFetcher` to `handleLibreflareRequest`.
 
 If `logging.managed` is false, the repository owns logging behavior and the default template handler is not sufficient without code changes. Managed logging config is generated into the single `LIBREFLARE_CONFIG` Worker variable.
 
@@ -82,7 +82,9 @@ version: 1
 worker:
   managed: true
   zoneName: example.com
-  domain: example.com
+  domains:
+    - example.com
+    - "*.example.com"
   routePrefix: /logging-route
 logging:
   managed: true
@@ -104,4 +106,4 @@ rewriteRule:
 
 Do not modify this file manually. Deployment metadata belongs in Libreflare, not in the Worker repository.
 
-`worker.domain` may be the bare zone name, `*.example.com`, or a concrete subdomain under `worker.zoneName`.
+`worker.domains` contains the hostnames Libreflare should route to the Worker. Values may include the bare zone name, `*.example.com`, concrete subdomains under `worker.zoneName`, or explicit Cloudflare for SaaS custom hostnames.
