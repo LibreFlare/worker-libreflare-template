@@ -12,13 +12,11 @@ Starter Cloudflare Worker for Libreflare-managed logging projects.
 6. Libreflare opens a pull request that writes `libreflare.config.yaml`.
 7. Review and merge the pull request, then configure `LOG_API_AUTH_HEADERS_JSON` as a Worker secret if `logging.auth` is true and Libreflare did not supply an `authHeadersSecret`.
 
-The template keeps stable Worker settings, including the Worker name, in `wrangler.jsonc`. Project-specific route, runtime config, required secrets, and rule expression are read from `libreflare.config.yaml` and written to `wrangler.generated.jsonc` before `dev` and `deploy` by `@libreflare/worker-cli`. The CLI also writes `.wrangler/deploy/config.json`, which redirects Wrangler's deploy/dev commands to the generated config.
+The template keeps stable Worker settings, including the Worker name, in `wrangler.jsonc`. Project-specific routes, runtime config, required secrets, and rule expressions are read from `libreflare.config.yaml` and written to `wrangler.generated.jsonc` before `dev` and `deploy` by `@libreflare/worker-cli`. The CLI also writes `.wrangler/deploy/config.json`, which redirects Wrangler's deploy/dev commands to the generated config.
 
 Before Libreflare writes `libreflare.config.yaml`, `libreflare-worker config generate` points Wrangler at the base `wrangler.jsonc` so the first Workers Build deployment can create the Worker without routes.
 
-If `worker.managed` is false, the CLI leaves Worker routes from the base Wrangler config untouched. If `worker.routePrefix` is still present, the runtime strips that prefix before forwarding to origin; otherwise custom Worker code must pass an `originFetcher` to `handleLibreflareRequest`.
-
-If `logging.managed` is false, the repository owns logging behavior and the default template handler is not sufficient without code changes. Managed logging config is generated into the single `LIBREFLARE_CONFIG` Worker variable.
+Managed logging config is generated into the single `LIBREFLARE_CONFIG` Worker variable.
 
 `wrangler types` reads the stable `wrangler.jsonc`, so Libreflare-managed binding types live in `src/libreflare-env.d.ts`.
 
@@ -50,18 +48,24 @@ Managed logging deployments generate one Worker variable:
 
 ```json
 {
-	"version": 1,
-	"ruleExpression": "cf.tls_cipher ne \"\"",
-	"workerRoutePrefix": "/logging-route",
+	"version": 2,
 	"logging": {
 		"apiUrl": "https://logs.example.com/insert/jsonline?_stream_fields=stream",
-		"sourceKey": "example-general",
-		"varyByMonth": false,
 		"headers": {
 			"X-Libreflare-Tenant-JWT": "Bearer eyJ..."
 		},
 		"authHeadersBinding": "LOG_API_AUTH_HEADERS_JSON"
-	}
+	},
+	"routes": [
+		{
+			"prefix": "/logging-route",
+			"logging": {
+				"sourceKey": "example-general",
+				"varyByMonth": false
+			},
+			"rule": "cf.tls_cipher ne \"\""
+		}
+	]
 }
 ```
 
@@ -78,19 +82,10 @@ return handleLibreflareRequest(request, env, ctx, {
 Libreflare writes managed changes to `libreflare.config.yaml`:
 
 ```yaml
-version: 1
-worker:
-  managed: true
-  zoneName: example.com
-  domains:
-    - example.com
-    - "*.example.com"
-  routePrefix: /logging-route
+version: 2
+zoneName: example.com
 logging:
-  managed: true
   apiUrl: https://logs.example.com/insert/jsonline?_stream_fields=stream
-  sourceKey: example-general
-  varyByMonth: false
   auth: true
   headers:
     X-Libreflare-Tenant-JWT: "Bearer eyJ..."
@@ -98,12 +93,18 @@ logging:
     binding: LOG_API_AUTH_HEADERS_JSON
     storeId: 00000000000000000000000000000000
     secretName: LIBREFLARE_LOGGING_AUTH_HEADERS
-rewriteRule:
-  version: 1
-  expression: |
-    cf.tls_cipher ne ""
+routes:
+  - prefix: /logging-route
+    domains:
+      - example.com
+      - "*.example.com"
+    logging:
+      sourceKey: example-general
+      varyByMonth: false
+    rule: |
+      cf.tls_cipher ne ""
 ```
 
 Do not modify this file manually. Deployment metadata belongs in Libreflare, not in the Worker repository.
 
-`worker.domains` contains the hostnames Libreflare should route to the Worker. Values may include the bare zone name, `*.example.com`, concrete subdomains under `worker.zoneName`, or explicit Cloudflare for SaaS custom hostnames.
+Each route contains the hostnames Libreflare should route to the Worker plus the prefix the runtime uses for matching. Values may include the bare zone name, `*.example.com`, concrete subdomains under `zoneName`, or explicit Cloudflare for SaaS custom hostnames.
