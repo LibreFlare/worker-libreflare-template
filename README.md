@@ -12,17 +12,17 @@ Starter Cloudflare Worker for Libreflare-managed logging projects.
 6. Libreflare opens a pull request that writes `libreflare.config.yaml`.
 7. Review and merge the pull request, then configure `LOG_API_AUTH_HEADERS_JSON` as a Worker secret if `logging.auth` is true and Libreflare did not supply an `authHeadersSecret`.
 
-The template keeps stable Worker settings, including the Worker name, in `wrangler.jsonc`. Project-specific routes, runtime config, required secrets, and rule expressions are read from `libreflare.config.yaml` and written to `wrangler.generated.jsonc` before `dev` and `deploy` by `@libreflare/worker-cli`. The CLI also writes `.wrangler/deploy/config.json`, which redirects Wrangler's deploy/dev commands to the generated config.
+The template keeps stable Worker settings, including the Worker name, in `wrangler.jsonc`. Project-specific routes, required secrets, and rule expressions are read from `libreflare.config.yaml` and written to `wrangler.generated.jsonc` before `dev` and `deploy` by `@libreflare/worker-cli`. Runtime route/logging config is written to `src/libreflare-runtime-config.generated.json` and bundled with the Worker. The CLI also writes `.wrangler/deploy/config.json`, which redirects Wrangler's deploy/dev commands to the generated config.
 
-Before Libreflare writes `libreflare.config.yaml`, `libreflare-worker config generate` points Wrangler at the base `wrangler.jsonc` so the first Workers Build deployment can create the Worker without routes.
+Before Libreflare writes `libreflare.config.yaml`, `libreflare-worker config generate` points Wrangler at the base `wrangler.jsonc` and writes a runtime config JSON stub so the first Workers Build deployment can create the Worker without routes.
 
-Managed logging config is generated into the single `LIBREFLARE_CONFIG` Worker variable.
+Managed logging config is generated into `src/libreflare-runtime-config.generated.json`, avoiding Worker variable size limits for projects with many routes.
 
 `wrangler types` reads the stable `wrangler.jsonc`, so Libreflare-managed binding types live in `src/libreflare-env.d.ts`.
 
 ## Logging API Auth
 
-`logging.headers` is written into `LIBREFLARE_CONFIG.logging.headers` as a JSON object, not a stringified JSON value. Libreflare uses this for the signed `X-Libreflare-Tenant-JWT` header consumed by vmauth.
+`logging.headers` is written into the generated runtime config's `logging.headers` as a JSON object, not a stringified JSON value. Libreflare uses this for the signed `X-Libreflare-Tenant-JWT` header consumed by vmauth.
 
 For fully managed Libreflare logging, VictoriaLogs `AccountID` is assigned per Libreflare organization and `ProjectID` is assigned per domain. Libreflare signs those values into `X-Libreflare-Tenant-JWT`; vmauth verifies the signature and forwards the mapped `AccountID` and `ProjectID` headers to VictoriaLogs. The Cloudflare Access Service Credential remains separate and is used for immediate access revocation.
 
@@ -38,13 +38,13 @@ Example secret value:
 {"Authorization":"Bearer token"}
 ```
 
-When `logging.authHeadersSecret` is present, the generated Wrangler config binds `LOG_API_AUTH_HEADERS_JSON` from Cloudflare Secrets Store instead of requiring a Worker secret. `LIBREFLARE_CONFIG.logging.authHeadersBinding` points to that binding. Fully managed Libreflare logging uses this mode for the generated Cloudflare Access Service Credential.
+When `logging.authHeadersSecret` is present, the generated Wrangler config binds `LOG_API_AUTH_HEADERS_JSON` from Cloudflare Secrets Store instead of requiring a Worker secret. The generated runtime config's `logging.authHeadersBinding` points to that binding. Fully managed Libreflare logging uses this mode for the generated Cloudflare Access Service Credential.
 
 When `logging.auth` is false and no `authHeadersSecret` is present, no auth header binding is generated.
 
 ## Runtime Config
 
-Managed logging deployments generate one Worker variable:
+Managed logging deployments generate one JSON file:
 
 ```json
 {
@@ -73,6 +73,7 @@ Custom Workers can override the static source key in code:
 
 ```ts
 return handleLibreflareRequest(request, env, ctx, {
+	runtimeConfig: libreflareRuntimeConfig,
 	getSourceKey: (request) => new URL(request.url).hostname,
 });
 ```

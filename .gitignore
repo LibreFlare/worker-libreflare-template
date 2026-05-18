@@ -165,5 +165,6 @@ dist
 .env*
 !.env.example
 wrangler.generated.jsonc
+src/libreflare-runtime-config.generated.json
 .wrangler/
 .claude/
