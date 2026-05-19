@@ -13,7 +13,7 @@
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
-		"@libreflare/worker-cli": "^0.2.3",
+		"@libreflare/worker-cli": "^0.2.4",
 		"@types/node": "^24.12.3",
 		"eslint": "^10.2.0",
 		"typescript": "^6.0.3",
@@ -21,6 +21,6 @@
 		"wrangler": "^4.54.0"
 	},
 	"dependencies": {
-		"@libreflare/worker-runtime": "^0.4.4"
+		"@libreflare/worker-runtime": "^0.4.5"
 	}
 }

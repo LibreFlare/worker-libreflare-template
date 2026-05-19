@@ -61,6 +61,12 @@ Managed logging deployments generate one JSON file:
 			"prefix": "/logging-route",
 			"logging": {
 				"sourceKey": "example-general",
+				"sourceKeyRules": [
+					{
+						"expression": "cf.verified_bot_category eq\"AI Crawler\"",
+						"sourceKey": "example-ai-crawler"
+					}
+				],
 				"varyByMonth": false
 			},
 			"rule": "cf.tls_cipher ne \"\""
@@ -101,6 +107,9 @@ routes:
       - "*.example.com"
     logging:
       sourceKey: example-general
+      sourceKeyRules:
+        - expression: cf.verified_bot_category eq "AI Crawler"
+          sourceKey: example-ai-crawler
       varyByMonth: false
     rule: |
       cf.tls_cipher ne ""
@@ -109,3 +118,8 @@ routes:
 Do not modify this file manually. Deployment metadata belongs in Libreflare, not in the Worker repository.
 
 Each route contains the hostnames Libreflare should route to the Worker plus the prefix the runtime uses for matching. Values may include the bare zone name, `*.example.com`, concrete subdomains under `zoneName`, or explicit Cloudflare for SaaS custom hostnames.
+
+`logging.sourceKey` is the default stream key. Optional `logging.sourceKeyRules`
+are ordered Worker-side expressions that can select a more specific key before
+origin fetch. They use native Cloudflare Rules syntax, do not support rule
+fragments, and cannot reference Cloudflare lists such as `$known_crawlers`.
