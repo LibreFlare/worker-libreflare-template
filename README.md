@@ -11,6 +11,7 @@ Starter Cloudflare Worker for Libreflare-managed logging projects.
 5. Select the unrouted Cloudflare Worker in the Libreflare dashboard and configure the initial rewrite.
 6. Libreflare opens a pull request that writes `libreflare.config.yaml`.
 7. Review and merge the pull request, then configure `LOG_API_AUTH_HEADERS_JSON` as a Worker secret if `logging.auth` is true and Libreflare did not supply an `authHeadersSecret`.
+8. If rewrite rules reference Cloudflare Custom Lists, create a project build token in Libreflare and add it to Workers Builds as the `LIBREFLARE_BUILD_TOKEN` build secret.
 
 The template keeps stable Worker settings, including the Worker name, in `wrangler.jsonc`. Project-specific routes, required secrets, and rule expressions are read from `libreflare.config.yaml` and written to `wrangler.generated.jsonc` before `dev` and `deploy` by `@libreflare/worker-cli`. Runtime route/logging config is written to `src/libreflare-runtime-config.generated.json` and bundled with the Worker. The CLI also writes `.wrangler/deploy/config.json`, which redirects Wrangler's deploy/dev commands to the generated config.
 
@@ -19,6 +20,16 @@ Before Libreflare writes `libreflare.config.yaml`, `libreflare-worker config gen
 Managed logging config is generated into `src/libreflare-runtime-config.generated.json`, avoiding Worker variable size limits for projects with many routes.
 
 `wrangler types` reads the stable `wrangler.jsonc`, so Libreflare-managed binding types live in `src/libreflare-env.d.ts`.
+
+## Workers Builds Secrets
+
+Cloudflare Custom List resolution happens during Workers Builds through Libreflare's dashboard snapshot cache. For production Libreflare projects, add this Workers Builds secret:
+
+```txt
+LIBREFLARE_BUILD_TOKEN = lfbt_...
+```
+
+`LIBREFLARE_DASHBOARD_URL` defaults to `https://dash.libreflare.com`; set it as a Workers Builds variable only for non-production dashboard origins. Do not put the build token in `libreflare.config.yaml`, Worker runtime variables, Worker secrets, or logs.
 
 ## Logging API Auth
 
@@ -91,6 +102,10 @@ Libreflare writes managed changes to `libreflare.config.yaml`:
 ```yaml
 version: 2
 zoneName: example.com
+customLists:
+  known_crawlers:
+    kind: ip
+    cloudflareListId: 2c0fc9fa937b11eaa1b71c4d701ab86e
 logging:
   apiUrl: https://logs.example.com/insert/jsonline?_stream_fields=stream
   auth: true
@@ -112,7 +127,7 @@ routes:
           sourceKey: example-ai-crawler
       varyByMonth: false
     rule: |
-      cf.tls_cipher ne ""
+      ip.src in $known_crawlers and cf.tls_cipher ne ""
 ```
 
 Do not modify this file manually. Deployment metadata belongs in Libreflare, not in the Worker repository.
@@ -123,3 +138,8 @@ Each route contains the hostnames Libreflare should route to the Worker plus the
 are ordered Worker-side expressions that can select a more specific key before
 origin fetch. They use native Cloudflare Rules syntax, do not support rule
 fragments, and cannot reference Cloudflare lists such as `$known_crawlers`.
+
+Top-level `customLists` entries with `cloudflareListId` are written by Libreflare
+for Cloudflare IP Custom Lists referenced by route rewrite rules. The Worker
+build resolves them through the dashboard using `LIBREFLARE_BUILD_TOKEN` and
+writes resolved item snapshots into `src/libreflare-runtime-config.generated.json`.
