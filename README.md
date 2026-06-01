@@ -62,6 +62,7 @@ Managed logging deployments generate one JSON file:
 	"version": 2,
 	"logging": {
 		"apiUrl": "https://logs.example.com/insert/jsonline?_stream_fields=stream",
+		"resolveClientHostname": true,
 		"headers": {
 			"X-Libreflare-Tenant-JWT": "Bearer eyJ..."
 		},
@@ -109,6 +110,7 @@ customLists:
 logging:
   apiUrl: https://logs.example.com/insert/jsonline?_stream_fields=stream
   auth: true
+  resolveClientHostname: true
   headers:
     X-Libreflare-Tenant-JWT: "Bearer eyJ..."
   authHeadersSecret:
@@ -138,6 +140,9 @@ Each route contains the hostnames Libreflare should route to the Worker plus the
 are ordered Worker-side expressions that can select a more specific key before
 origin fetch. They use native Cloudflare Rules syntax, do not support rule
 fragments, and cannot reference Cloudflare lists such as `$known_crawlers`.
+
+Set `logging.resolveClientHostname: true` to add `request.client_hostname` to
+log events by resolving the `cf-connecting-ip` address through reverse DNS.
 
 Top-level `customLists` entries with `cloudflareListId` are written by Libreflare
 for Cloudflare IP Custom Lists referenced by route rewrite rules. The Worker
