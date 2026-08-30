@@ -21,6 +21,6 @@
 		"wrangler": "^4.126.0"
 	},
 	"dependencies": {
-		"@libreflare/worker-runtime": "^0.5.10"
+		"@libreflare/worker-runtime": "^0.6.0"
 	}
 }
